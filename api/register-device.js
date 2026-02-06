@@ -1,6 +1,10 @@
-import { initializeFirebase } from '../../lib/firebase.js';
+const { initializeFirebase } = require('../lib/firebase.js');
+const addCorsHeaders = require('./_cors.js');
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
+  // Добавляем CORS headers
+  if (addCorsHeaders(req, res)) return;
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -10,24 +14,21 @@ export default async function handler(req, res) {
 
     if (!fcmToken || !latitude || !longitude) {
       return res.status(400).json({ 
-        error: 'Missing required fields' 
+        error: 'Missing required fields: fcmToken, latitude, longitude' 
       });
     }
 
-    // Инициализируем Firebase (для будущих push-уведомлений)
+    // Инициализируем Firebase
     initializeFirebase();
 
     // TODO: Сохранить в базу данных (Vercel KV)
-    // Пока просто логируем
     console.log('Device registered:', { 
       fcmToken: fcmToken.substring(0, 20) + '...',
       latitude, 
       longitude,
-      userId: userId || 'anonymous'
+      userId: userId || 'anonymous',
+      timestamp: new Date().toISOString()
     });
-
-    // Можно сразу отправить тестовое уведомление
-    // await sendTestNotification(fcmToken);
 
     return res.status(200).json({ 
       success: true,
@@ -42,4 +43,4 @@ export default async function handler(req, res) {
       details: error.message 
     });
   }
-}
+};

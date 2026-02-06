@@ -1,23 +1,24 @@
+const addCorsHeaders = require('./_cors.js');
+
 module.exports = async function handler(req, res) {
-  console.log('FIREBASE_SERVICE_ACCOUNT exists:', !!process.env.FIREBASE_SERVICE_ACCOUNT);
-  console.log('Length:', process.env.FIREBASE_SERVICE_ACCOUNT?.length);
+  if (addCorsHeaders(req, res)) return;
+
+  const envVars = Object.keys(process.env).filter(k => 
+    k.includes('FIREBASE') || k.includes('VERCEL')
+  );
   
-  try {
-    const parsed = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
-    console.log('Parsed successfully, project_id:', parsed.project_id);
-    
-    return res.json({
-      hasEnv: !!process.env.FIREBASE_SERVICE_ACCOUNT,
-      length: process.env.FIREBASE_SERVICE_ACCOUNT?.length,
-      projectId: parsed.project_id,
-      error: null
-    });
-  } catch (e) {
-    console.error('Parse error:', e.message);
-    return res.json({
-      hasEnv: !!process.env.FIREBASE_SERVICE_ACCOUNT,
-      error: e.message,
-      sample: process.env.FIREBASE_SERVICE_ACCOUNT?.substring(0, 50) + '...'
-    });
-  }
-}
+  const result = {
+    server: 'Pixel Weather Push Server',
+    status: 'online',
+    timestamp: new Date().toISOString(),
+    allEnvVars: envVars,
+    hasFirebaseVar: !!process.env.FIREBASE_SERVICE_ACCOUNT,
+    firebaseLength: process.env.FIREBASE_SERVICE_ACCOUNT?.length,
+    first50Chars: process.env.FIREBASE_SERVICE_ACCOUNT?.substring(0, 50),
+    vercelEnv: process.env.VERCEL_ENV
+  };
+
+  console.log('Debug endpoint called:', result);
+  
+  return res.json(result);
+};

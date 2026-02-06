@@ -1,6 +1,10 @@
 const { getMessaging } = require('../lib/firebase.js');
+const addCorsHeaders = require('./_cors.js');
 
 module.exports = async function handler(req, res) {
+  // Добавляем CORS headers
+  if (addCorsHeaders(req, res)) return;
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -45,4 +49,4 @@ module.exports = async function handler(req, res) {
       details: error.message 
     });
   }
-}
+};
