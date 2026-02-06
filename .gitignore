@@ -1,0 +1,14 @@
+# Firebase keys
+*.json
+*.pem
+*.key
+
+# Environment variables
+.env
+.env.local
+
+# Node modules
+node_modules/
+
+# System files
+.DS_Store
