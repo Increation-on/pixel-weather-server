@@ -1,0 +1,11 @@
+{
+  "name": "pixel-weather-server",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node api/register-device.js"
+  },
+  "dependencies": {
+    "@vercel/node": "^3.0.0",
+    "firebase-admin": "^11.11.0"
+  }
+}
