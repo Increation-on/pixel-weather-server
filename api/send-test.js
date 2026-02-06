@@ -1,4 +1,4 @@
-import { getMessaging } from '/lib/firebase.js';
+import { getMessaging } from "../lib/firebase";
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
