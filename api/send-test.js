@@ -21,28 +21,45 @@ module.exports = async function handler(req, res) {
     const messaging = getMessaging();
 
     const message = {
-      token: fcmToken,
-      notification: {
-        title: title,
-        body: body
-      },
-      android: {
-        priority: "high",
-        notification: {
-          sound: "default",
-          channel_id: "weather"
-        }
-      },
-      apns: {
-        payload: {
-          aps: {
-            sound: "default",
-            contentAvailable: true
-          }
-        }
-      },
-      data: data || { timestamp: new Date().toISOString(), type: 'test' }
-    };
+  token: fcmToken,
+  notification: {
+    title: '🔥 FIREBASE MAX PRIORITY',
+    body: 'Тест с максимальным приоритетом'
+  },
+  android: {
+    priority: "high",  // ← high для доставки
+    ttl: 3600000, // 1 час
+    notification: {
+      sound: "default",
+      channel_id: "weather",
+      notification_priority: "PRIORITY_MAX",  // ← MAX для отображения
+      visibility: "PUBLIC",
+      default_sound: true,
+      default_vibrate_timings: true,
+      default_light_settings: true
+    }
+  },
+  apns: {
+    headers: {
+      "apns-priority": "10"  // Максимум для iOS
+    },
+    payload: {
+      aps: {
+        alert: {
+          title: '🔥 FIREBASE MAX PRIORITY',
+          body: 'Тест с максимальным приоритетом'
+        },
+        sound: "default",
+        badge: 1
+      }
+    }
+  },
+  data: {
+    priority: "max",
+    force_display: "true",
+    timestamp: new Date().toISOString()
+  }
+};
 
     const response = await messaging.send(message);
     
