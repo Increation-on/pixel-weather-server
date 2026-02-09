@@ -24,7 +24,9 @@ module.exports = async function handler(req, res) {
   token: fcmToken,
   notification: {
     title: '🔥 FIREBASE MAX PRIORITY',
-    body: 'Тест с максимальным приоритетом'
+    body: 'Тест с максимальным приоритетом',
+    android_channel_id: "pixel_weather_high"
+    
   },
   android: {
     priority: "high",  // ← high для доставки
