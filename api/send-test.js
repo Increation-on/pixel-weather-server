@@ -31,7 +31,7 @@ module.exports = async function handler(req, res) {
     ttl: 3600000, // 1 час
     notification: {
       sound: "default",
-      channel_id: "pixel_weather_alerts",
+      channel_id: "pixel_weather_high",
       notification_priority: "PRIORITY_MAX",  // ← MAX для отображения
       visibility: "PUBLIC",
       default_sound: true,
