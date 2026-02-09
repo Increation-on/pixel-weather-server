@@ -21,16 +21,28 @@ module.exports = async function handler(req, res) {
     const messaging = getMessaging();
 
     const message = {
-      token: fcmToken,
-      notification: {
-        title: '🌤️ Pixel Weather Test',
-        body: 'Push notifications are working!',
-      },
-      data: {
-        type: 'test',
-        timestamp: new Date().toISOString(),
-      },
-    };
+  token: fcmToken,
+  notification: {
+    title: title,
+    body: body
+  },
+  android: {
+    priority: "high",  // ← ВАЖНО!
+    notification: {
+      sound: "default",
+      channel_id: "weather"  // ← канал
+    }
+  },
+  apns: {
+    payload: {
+      aps: {
+        sound: "default",
+        contentAvailable: true  // ← для iOS
+      }
+    }
+  },
+  data: data || {}
+};
 
     const response = await messaging.send(message);
     
