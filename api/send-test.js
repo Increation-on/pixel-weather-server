@@ -10,7 +10,7 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { fcmToken } = req.body;
+    const { fcmToken, title = '🌤️ Pixel Weather Test', body = 'Push notifications are working!', data } = req.body;
 
     if (!fcmToken) {
       return res.status(400).json({ 
@@ -21,28 +21,28 @@ module.exports = async function handler(req, res) {
     const messaging = getMessaging();
 
     const message = {
-  token: fcmToken,
-  notification: {
-    title: title,
-    body: body
-  },
-  android: {
-    priority: "high",  // ← ВАЖНО!
-    notification: {
-      sound: "default",
-      channel_id: "weather"  // ← канал
-    }
-  },
-  apns: {
-    payload: {
-      aps: {
-        sound: "default",
-        contentAvailable: true  // ← для iOS
-      }
-    }
-  },
-  data: data || {}
-};
+      token: fcmToken,
+      notification: {
+        title: title,
+        body: body
+      },
+      android: {
+        priority: "high",
+        notification: {
+          sound: "default",
+          channel_id: "weather"
+        }
+      },
+      apns: {
+        payload: {
+          aps: {
+            sound: "default",
+            contentAvailable: true
+          }
+        }
+      },
+      data: data || { timestamp: new Date().toISOString(), type: 'test' }
+    };
 
     const response = await messaging.send(message);
     
