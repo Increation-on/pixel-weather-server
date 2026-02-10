@@ -2,7 +2,7 @@ const { getMessaging } = require('../lib/firebase.js');
 const addCorsHeaders = require('./_cors.js');
 
 module.exports = async function handler(req, res) {
-  // Добавляем CORS headers
+  // CORS headers
   if (addCorsHeaders(req, res)) return;
 
   if (req.method !== 'POST') {
@@ -12,10 +12,10 @@ module.exports = async function handler(req, res) {
   try {
     const { 
       fcmToken, 
-      channelId = 'pixel_weather_high', // Новый параметр!
-      title, 
-      body, 
-      data 
+      title = 'PIXEL WEATHER - ТЕСТ', 
+      body = '✅ Тестовое уведомление работает!',
+      channelId = 'pixel_weather_default',
+      data = {}
     } = req.body;
 
     if (!fcmToken) {
@@ -24,99 +24,74 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    console.log(`📤 Отправка уведомления на токен: ${fcmToken.substring(0, 20)}...`);
-    console.log(`📤 Канал: ${channelId}`);
+    console.log(`📤 Тест: Отправка на ${fcmToken.substring(0, 20)}...`);
+    console.log(`🎯 Канал: ${channelId}`);
 
     const messaging = getMessaging();
 
-    // Определяем заголовок и текст по типу канала
-    let notificationTitle, notificationBody;
-    if (channelId.includes('high')) {
-      notificationTitle = '⚠️ ВНИМАНИЕ! Гроза!';
-      notificationBody = 'Сильный шторм приближается к вашему району';
-    } else if (channelId.includes('low')) {
-      notificationTitle = '🌤️ Погодное обновление';
-      notificationBody = 'Небольшие изменения в прогнозе';
-    } else {
-      notificationTitle = title || '📊 Изменение погоды';
-      notificationBody = body || 'Температура понизится на 5 градусов';
-    }
-
-    // КРИТИЧЕСКОЕ ИЗМЕНЕНИЕ: Только data, без блока notification!
+    // Data-only сообщение для Notifee
     const message = {
       token: fcmToken,
       
-      // ВАЖНО: Только data-сообщения!
       data: {
-        // Основные поля для отображения (будет использовать Notifee на клиенте)
-        title: notificationTitle,
-        body: notificationBody,
-        
-        // Ключевое поле для определения канала
+        // Основные поля
+        title: title,
+        body: body,
         channel_id: channelId,
         
-        // Дополнительные метаданные
-        type: channelId.includes('high') ? 'alert' : 'update',
-        severity: channelId.includes('high') ? 'high' : 'normal',
+        // Метаданные
+        type: 'test',
+        source: 'server_test',
         timestamp: new Date().toISOString(),
+        priority: channelId.includes('high') ? 'high' : 'normal',
         
-        // Для совместимости с разными библиотеками
+        // Для Android
         android_channel_id: channelId,
-        sound: channelId.includes('high') ? 'alarm' : 'default',
-        click_action: 'FLUTTER_NOTIFICATION_CLICK',
-        priority: channelId.includes('high') ? 'max' : 'normal',
+        sound: channelId.includes('low') ? null : 'default',
         
-        // Любые дополнительные данные из запроса
+        // Дополнительные данные
         ...data
       },
       
-      // Настройки Android доставки (не влияют на канал!)
       android: {
         priority: channelId.includes('high') ? 'high' : 'normal',
-        ttl: 3600000 // 1 час
+        ttl: 3600000
       },
       
-      // Настройки iOS
       apns: {
         headers: {
           "apns-priority": channelId.includes('high') ? "10" : "5"
         },
         payload: {
           aps: {
-            sound: "default",
+            sound: channelId.includes('low') ? null : "default",
             badge: 1,
-            // Важно: для iOS тоже передаем данные в aps
-            alert: {
-              title: notificationTitle,
-              body: notificationBody
-            }
+            contentAvailable: 1,
+            mutableContent: 1
           }
         }
       }
     };
 
-    console.log('📤 Payload для FCM:');
-    console.log(JSON.stringify(message, null, 2));
+    console.log('📤 Отправка тестового сообщения...');
 
-    // Отправляем через Firebase Admin SDK
     const response = await messaging.send(message);
     
-    console.log('✅ Успешно отправлено в FCM:', response);
+    console.log('✅ Тест успешен:', response);
 
     return res.status(200).json({ 
       success: true,
-      message: 'Push sent successfully',
+      message: 'Test push sent successfully',
       messageId: response,
-      channelId: channelId,
-      payload: message.data // Возвращаем что отправили для отладки
+      channelId: channelId
     });
 
   } catch (error) {
-    console.error('❌ Ошибка отправки:', error);
+    console.error('❌ Ошибка теста:', error);
     return res.status(500).json({ 
-      error: 'Failed to send push',
+      error: 'Test failed',
       details: error.message,
       code: error.code
     });
   }
-}; 
+};
