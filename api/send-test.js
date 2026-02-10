@@ -31,54 +31,37 @@ module.exports = async function handler(req, res) {
 
     // 🔴 ПРАВИЛЬНЫЙ ФОРМАТ: notification + data
     const message = {
-      token: fcmToken,
-      
-      // Для показа уведомления
-      notification: {
-        title: String(title),
-        body: String(body)
-      },
-      
-      // Для передачи данных
-      data: {
-        type: 'test',
-        source: 'server_test',
-        timestamp: new Date().toISOString(),
-        priority: String(priority),
-        android_channel_id: String(channelId),
-        ...data // Любые дополнительные данные
-      },
-      
-      android: {
-        priority: channelId.includes('high') ? 'high' : 'normal',
-        ttl: 3600000,
-        notification: {
-          channel_id: channelId,
-          icon: 'notification_icon',
-          color: '#4ecdc4',
-          sound: channelId !== 'pixel_weather_low' ? 'default' : null
-        }
-      },
-      
-      apns: {
-        headers: {
-          "apns-priority": channelId.includes('high') ? "10" : "5",
-          "apns-push-type": "alert"
-        },
-        payload: {
-          aps: {
-            alert: {
-              title: String(title),
-              body: String(body)
-            },
-            sound: channelId !== 'pixel_weather_low' ? "default" : undefined,
-            badge: 1,
-            'content-available': 1,
-            'mutable-content': 1
-          }
+  token: fcmToken,
+  // 🔴 ОБЯЗАТЕЛЬНО: notification ДЛЯ ПРОБУЖДЕНИЯ
+  notification: {
+    title: "Тест фона",
+    body: "Проверка"
+  },
+  // 🔴 ДАННЫЕ для AsyncStorage
+  data: {
+    type: 'debug_background',
+    testId: 'test_' + Date.now()
+  },
+  // 🔴 КРИТИЧНО для Android фона
+  android: {
+    priority: "high"
+  },
+  // 🔴 КРИТИЧНО для iOS фона
+  apns: {
+    headers: {
+      "apns-priority": "5"
+    },
+    payload: {
+      aps: {
+        'content-available': 1,
+        alert: { // Уведомление для iOS системы
+          title: "Тест фона",
+          body: "Проверка"
         }
       }
-    };
+    }
+  }
+};
 
     console.log('📤 Отправка тестового сообщения...');
     console.log('📦 Формат:', {
