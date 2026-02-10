@@ -30,7 +30,7 @@ function isQuietHours() {
 }
 
 // Простая защита от спама (максимум 1 уведомление в час на токен)
-const sentNotifications = new Map(); // В продакшене используйте Redis или БД
+const sentNotifications = new Map();
 
 function canSendNotification(fcmToken) {
   const lastSent = sentNotifications.get(fcmToken);
@@ -100,12 +100,12 @@ module.exports = async function handler(req, res) {
     if (finalPriority === 'high') {
       title = '⚠️ PIXEL WEATHER - ВНИМАНИЕ!';
       body = changes.length > 0 
-        ? changes[0] 
+        ? String(changes[0]) 
         : 'Экстренное погодное предупреждение';
     } else {
       title = '🌤️ PIXEL WEATHER';
       body = changes.length > 0 
-        ? (changes.length === 1 ? changes[0] : `Изменений: ${changes.length}`)
+        ? (changes.length === 1 ? String(changes[0]) : `Изменений: ${changes.length}`)
         : 'Обновление погоды';
     }
 
@@ -120,26 +120,34 @@ module.exports = async function handler(req, res) {
       token: fcmToken,
       
       data: {
-        title: title,
-        body: body,
-        channel_id: channelId,
+        // Основные поля - ВСЕ должны быть строками!
+        title: String(title),
+        body: String(body),
+        channel_id: String(channelId),
         
         // Метаданные
         type: 'weather_change',
-        priority: finalPriority,
+        priority: String(finalPriority),
         timestamp: new Date().toISOString(),
-        source: source,
+        source: String(source),
         
         // Данные для клиента
-        changes: JSON.stringify(changes),
-        location: JSON.stringify(location),
+        changes: JSON.stringify(changes), // JSON строка
+        location: JSON.stringify(location), // JSON строка
         
         // Для Android
-        android_channel_id: channelId,
-        sound: finalPriority === 'low' ? null : 'default',
+        android_channel_id: String(channelId),
         
-        // Дополнительные данные
-        ...data
+        // Звук только если не low приоритет
+        ...(finalPriority !== 'low' ? { sound: 'default' } : {}),
+        
+        // Дополнительные данные - конвертируем в строки
+        ...Object.fromEntries(
+          Object.entries(data).map(([key, value]) => [
+            key, 
+            typeof value === 'object' ? JSON.stringify(value) : String(value)
+          ])
+        )
       },
       
       android: {
@@ -153,7 +161,8 @@ module.exports = async function handler(req, res) {
         },
         payload: {
           aps: {
-            sound: finalPriority === 'low' ? null : "default",
+            // Для iOS только строка или отсутствует
+            ...(finalPriority !== 'low' ? { sound: "default" } : {}),
             badge: 1,
             contentAvailable: 1,
             mutableContent: 1
@@ -163,6 +172,7 @@ module.exports = async function handler(req, res) {
     };
 
     console.log('📤 Отправка погодного уведомления...');
+    console.log('📦 Данные:', JSON.stringify(message.data, null, 2));
 
     const response = await messaging.send(message);
     

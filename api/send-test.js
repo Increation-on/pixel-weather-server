@@ -15,7 +15,8 @@ module.exports = async function handler(req, res) {
       title = 'PIXEL WEATHER - ТЕСТ', 
       body = '✅ Тестовое уведомление работает!',
       channelId = 'pixel_weather_default',
-      data = {}
+      data = {},
+      priority = 'default' // Добавляем параметр приоритета
     } = req.body;
 
     if (!fcmToken) {
@@ -25,7 +26,7 @@ module.exports = async function handler(req, res) {
     }
 
     console.log(`📤 Тест: Отправка на ${fcmToken.substring(0, 20)}...`);
-    console.log(`🎯 Канал: ${channelId}`);
+    console.log(`🎯 Канал: ${channelId}, Приоритет: ${priority}`);
 
     const messaging = getMessaging();
 
@@ -34,23 +35,30 @@ module.exports = async function handler(req, res) {
       token: fcmToken,
       
       data: {
-        // Основные поля
-        title: title,
-        body: body,
-        channel_id: channelId,
+        // Основные поля - ВСЕ значения должны быть строками!
+        title: String(title),
+        body: String(body),
+        channel_id: String(channelId),
         
         // Метаданные
         type: 'test',
         source: 'server_test',
         timestamp: new Date().toISOString(),
-        priority: channelId.includes('high') ? 'high' : 'normal',
+        priority: String(priority),
         
-        // Для Android
-        android_channel_id: channelId,
-        sound: channelId.includes('low') ? null : 'default',
+        // Для Android - только строки
+        android_channel_id: String(channelId),
         
-        // Дополнительные данные
-        ...data
+        // Звук только если не low приоритет
+        ...(channelId !== 'pixel_weather_low' ? { sound: 'default' } : {}),
+        
+        // Дополнительные данные - конвертируем все в строки
+        ...Object.fromEntries(
+          Object.entries(data).map(([key, value]) => [
+            key, 
+            typeof value === 'object' ? JSON.stringify(value) : String(value)
+          ])
+        )
       },
       
       android: {
@@ -64,7 +72,8 @@ module.exports = async function handler(req, res) {
         },
         payload: {
           aps: {
-            sound: channelId.includes('low') ? null : "default",
+            // Для iOS sound не может быть null, только строка или отсутствует
+            ...(channelId !== 'pixel_weather_low' ? { sound: "default" } : {}),
             badge: 1,
             contentAvailable: 1,
             mutableContent: 1
@@ -74,6 +83,7 @@ module.exports = async function handler(req, res) {
     };
 
     console.log('📤 Отправка тестового сообщения...');
+    console.log('📦 Данные:', JSON.stringify(message.data, null, 2));
 
     const response = await messaging.send(message);
     
@@ -83,11 +93,18 @@ module.exports = async function handler(req, res) {
       success: true,
       message: 'Test push sent successfully',
       messageId: response,
-      channelId: channelId
+      channelId: channelId,
+      priority: priority
     });
 
   } catch (error) {
     console.error('❌ Ошибка теста:', error);
+    console.error('Полная ошибка:', {
+      code: error.code,
+      message: error.message,
+      details: error.details
+    });
+    
     return res.status(500).json({ 
       error: 'Test failed',
       details: error.message,
