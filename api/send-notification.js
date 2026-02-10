@@ -94,17 +94,17 @@ module.exports = async function handler(req, res) {
     const finalPriority = priority || determinePriority(changes);
     const channelId = `pixel_weather_${finalPriority}`;
     
-    // Формируем заголовок и текст
-    let title, body;
+    // 🔴 ФОРМИРУЕМ ЗАГОЛОВОК И ТЕКСТ ПРАВИЛЬНО
+    let notificationTitle, notificationBody;
     
     if (finalPriority === 'high') {
-      title = '⚠️ PIXEL WEATHER - ВНИМАНИЕ!';
-      body = changes.length > 0 
+      notificationTitle = '⚠️ PIXEL WEATHER - ВНИМАНИЕ!';
+      notificationBody = changes.length > 0 
         ? String(changes[0]) 
         : 'Экстренное погодное предупреждение';
     } else {
-      title = '🌤️ PIXEL WEATHER';
-      body = changes.length > 0 
+      notificationTitle = '🌤️ PIXEL WEATHER';
+      notificationBody = changes.length > 0 
         ? (changes.length === 1 ? String(changes[0]) : `Изменений: ${changes.length}`)
         : 'Обновление погоды';
     }
@@ -116,15 +116,18 @@ module.exports = async function handler(req, res) {
 
     const messaging = getMessaging();
 
+    // 🔴 КРИТИЧЕСКИ ВАЖНО: ПРАВИЛЬНЫЙ ФОРМАТ СООБЩЕНИЯ
     const message = {
       token: fcmToken,
       
+      // 🔴 ДЛЯ ПОКАЗА УВЕДОМЛЕНИЯ (работает всегда)
+      notification: {
+        title: notificationTitle,
+        body: notificationBody
+      },
+      
+      // 🔴 ДЛЯ ПЕРЕДАЧИ ДАННЫХ В ПРИЛОЖЕНИЕ (работает в фоне)
       data: {
-        // Основные поля - ВСЕ должны быть строками!
-        title: String(title),
-        body: String(body),
-        channel_id: String(channelId),
-        
         // Метаданные
         type: 'weather_change',
         priority: String(finalPriority),
@@ -135,44 +138,61 @@ module.exports = async function handler(req, res) {
         changes: JSON.stringify(changes), // JSON строка
         location: JSON.stringify(location), // JSON строка
         
-        // Для Android
+        // Для вашего кода на клиенте (опционально)
         android_channel_id: String(channelId),
         
-        // Звук только если не low приоритет
-        ...(finalPriority !== 'low' ? { sound: 'default' } : {}),
-        
-        // Дополнительные данные - конвертируем в строки
-        ...Object.fromEntries(
-          Object.entries(data).map(([key, value]) => [
-            key, 
-            typeof value === 'object' ? JSON.stringify(value) : String(value)
-          ])
-        )
+        // 🔴 ВАЖНО: не дублируем title и body здесь
+        // они уже в notification
       },
       
+      // 🔴 НАСТРОЙКИ ДЛЯ ANDROID
       android: {
         priority: finalPriority === 'high' ? 'high' : 'normal',
-        ttl: 3600000 // 1 час
+        ttl: 3600000, // 1 час
+        notification: {
+          channel_id: channelId, // 🔴 Ключевое для Android 8+
+          icon: 'notification_icon',
+          color: '#4ecdc4',
+          sound: finalPriority !== 'low' ? 'default' : null,
+          tag: 'weather_update'
+        }
       },
       
+      // 🔴 НАСТРОЙКИ ДЛЯ iOS
       apns: {
         headers: {
-          "apns-priority": finalPriority === 'high' ? "10" : "5"
+          "apns-priority": finalPriority === 'high' ? "10" : "5",
+          "apns-push-type": "alert"
         },
         payload: {
           aps: {
-            // Для iOS только строка или отсутствует
-            ...(finalPriority !== 'low' ? { sound: "default" } : {}),
+            alert: {
+              title: notificationTitle,
+              body: notificationBody
+            },
+            sound: finalPriority !== 'low' ? "default" : undefined,
             badge: 1,
-            contentAvailable: 1,
-            mutableContent: 1
+            'content-available': 1, // 🔴 КРИТИЧЕСКИ для фоновых сообщений
+            'mutable-content': 1
           }
+        }
+      },
+      
+      // 🔴 WEB (если нужно)
+      webpush: {
+        headers: {
+          Urgency: finalPriority === 'high' ? 'high' : 'normal'
         }
       }
     };
 
     console.log('📤 Отправка погодного уведомления...');
-    console.log('📦 Данные:', JSON.stringify(message.data, null, 2));
+    console.log('📦 Формат сообщения:', {
+      hasNotification: !!message.notification,
+      hasData: !!message.data,
+      androidPriority: message.android.priority,
+      iosContentAvailable: message.apns.payload.aps['content-available']
+    });
 
     const response = await messaging.send(message);
     
@@ -188,15 +208,24 @@ module.exports = async function handler(req, res) {
       priority: finalPriority,
       channelId: channelId,
       changesCount: changes.length,
-      sentAt: new Date().toISOString()
+      sentAt: new Date().toISOString(),
+      format: 'notification+data' // Указываем что отправили оба формата
     });
 
   } catch (error) {
     console.error('❌ Ошибка отправки уведомления:', error);
+    console.error('Полная ошибка:', {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      stack: error.stack
+    });
+    
     return res.status(500).json({ 
       error: 'Failed to send notification',
       details: error.message,
-      code: error.code
+      code: error.code,
+      tip: 'Проверьте формат сообщения (notification + data)'
     });
   }
 };

@@ -2,7 +2,6 @@ const { getMessaging } = require('../lib/firebase.js');
 const addCorsHeaders = require('./_cors.js');
 
 module.exports = async function handler(req, res) {
-  // CORS headers
   if (addCorsHeaders(req, res)) return;
 
   if (req.method !== 'POST') {
@@ -16,7 +15,7 @@ module.exports = async function handler(req, res) {
       body = '✅ Тестовое уведомление работает!',
       channelId = 'pixel_weather_default',
       data = {},
-      priority = 'default' // Добавляем параметр приоритета
+      priority = 'default'
     } = req.body;
 
     if (!fcmToken) {
@@ -30,60 +29,62 @@ module.exports = async function handler(req, res) {
 
     const messaging = getMessaging();
 
-    // Data-only сообщение для Notifee
+    // 🔴 ПРАВИЛЬНЫЙ ФОРМАТ: notification + data
     const message = {
       token: fcmToken,
       
-      data: {
-        // Основные поля - ВСЕ значения должны быть строками!
+      // Для показа уведомления
+      notification: {
         title: String(title),
-        body: String(body),
-        channel_id: String(channelId),
-        
-        // Метаданные
+        body: String(body)
+      },
+      
+      // Для передачи данных
+      data: {
         type: 'test',
         source: 'server_test',
         timestamp: new Date().toISOString(),
         priority: String(priority),
-        
-        // Для Android - только строки
         android_channel_id: String(channelId),
-        
-        // Звук только если не low приоритет
-        ...(channelId !== 'pixel_weather_low' ? { sound: 'default' } : {}),
-        
-        // Дополнительные данные - конвертируем все в строки
-        ...Object.fromEntries(
-          Object.entries(data).map(([key, value]) => [
-            key, 
-            typeof value === 'object' ? JSON.stringify(value) : String(value)
-          ])
-        )
+        ...data // Любые дополнительные данные
       },
       
       android: {
         priority: channelId.includes('high') ? 'high' : 'normal',
-        ttl: 3600000
+        ttl: 3600000,
+        notification: {
+          channel_id: channelId,
+          icon: 'notification_icon',
+          color: '#4ecdc4',
+          sound: channelId !== 'pixel_weather_low' ? 'default' : null
+        }
       },
       
       apns: {
         headers: {
-          "apns-priority": channelId.includes('high') ? "10" : "5"
+          "apns-priority": channelId.includes('high') ? "10" : "5",
+          "apns-push-type": "alert"
         },
         payload: {
           aps: {
-            // Для iOS sound не может быть null, только строка или отсутствует
-            ...(channelId !== 'pixel_weather_low' ? { sound: "default" } : {}),
+            alert: {
+              title: String(title),
+              body: String(body)
+            },
+            sound: channelId !== 'pixel_weather_low' ? "default" : undefined,
             badge: 1,
-            contentAvailable: 1,
-            mutableContent: 1
+            'content-available': 1,
+            'mutable-content': 1
           }
         }
       }
     };
 
     console.log('📤 Отправка тестового сообщения...');
-    console.log('📦 Данные:', JSON.stringify(message.data, null, 2));
+    console.log('📦 Формат:', {
+      notification: message.notification,
+      dataKeys: Object.keys(message.data)
+    });
 
     const response = await messaging.send(message);
     
@@ -94,7 +95,8 @@ module.exports = async function handler(req, res) {
       message: 'Test push sent successfully',
       messageId: response,
       channelId: channelId,
-      priority: priority
+      priority: priority,
+      format: 'notification+data'
     });
 
   } catch (error) {

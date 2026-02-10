@@ -1,3 +1,4 @@
+//test-channels.js
 const { getMessaging } = require('../lib/firebase.js');
 const addCorsHeaders = require('./_cors.js');
 
