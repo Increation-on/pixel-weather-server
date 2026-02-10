@@ -1,19 +1,16 @@
 const { getMessaging } = require('../lib/firebase.js');
 const addCorsHeaders = require('./_cors.js');
 
-// Определение приоритета по изменениям погоды
 function determinePriority(changes) {
   if (!Array.isArray(changes)) return 'default';
   
   const changesText = changes.join(' ').toLowerCase();
   
-  // HIGH приоритет
   const highKeywords = ['гроза', 'ураган', 'шторм', 'ливень', 'сильный', 'экстрен', '⚠️', '⚡'];
   if (highKeywords.some(keyword => changesText.includes(keyword))) {
     return 'high';
   }
   
-  // DEFAULT приоритет  
   const defaultKeywords = ['температура', 'дождь', 'снег', 'туман', 'ветер', 'изменен', '↑', '↓'];
   if (defaultKeywords.some(keyword => changesText.includes(keyword))) {
     return 'default';
@@ -22,14 +19,12 @@ function determinePriority(changes) {
   return 'low';
 }
 
-// Проверка "тихих часов" (23:00 - 07:00)
 function isQuietHours() {
   const now = new Date();
   const hours = now.getHours();
   return hours >= 23 || hours < 7;
 }
 
-// Простая защита от спама (максимум 1 уведомление в час на токен)
 const sentNotifications = new Map();
 
 function canSendNotification(fcmToken) {
@@ -45,7 +40,6 @@ function updateNotificationTimestamp(fcmToken) {
 }
 
 module.exports = async function handler(req, res) {
-  // CORS headers
   if (addCorsHeaders(req, res)) return;
 
   if (req.method !== 'POST') {
@@ -55,10 +49,10 @@ module.exports = async function handler(req, res) {
   try {
     const { 
       fcmToken, 
-      changes = [],           // ["Температура +5°C", "Начался дождь"]
-      location = {},          // { lat: 55.7558, lon: 37.6176, name: "Москва" }
-      priority,               // Опционально: 'high' | 'default' | 'low'
-      source = 'weather_service', // Откуда пришел запрос
+      changes = [],
+      location = {},
+      priority,
+      source = 'weather_service',
       data = {}
     } = req.body;
 
@@ -68,33 +62,31 @@ module.exports = async function handler(req, res) {
       });
     }
 
-    // Проверка "тихих часов"
-    if (isQuietHours()) {
-      console.log('🌙 Тихие часы (23:00-07:00), пропускаем уведомление');
-      return res.status(200).json({ 
-        success: true,
-        message: 'Notification skipped (quiet hours)',
-        skipped: true,
-        reason: 'quiet_hours'
-      });
-    }
+    // Пропускаем проверку тихих часов для тестов
+    // if (isQuietHours()) {
+    //   console.log('🌙 Тихие часы, пропускаем');
+    //   return res.status(200).json({ 
+    //     success: true,
+    //     message: 'Notification skipped (quiet hours)',
+    //     skipped: true,
+    //     reason: 'quiet_hours'
+    //   });
+    // }
 
-    // Защита от спама
-    if (!canSendNotification(fcmToken)) {
-      console.log('⏱️ Слишком часто для токена, пропускаем');
-      return res.status(200).json({ 
-        success: true,
-        message: 'Notification skipped (rate limit)',
-        skipped: true,
-        reason: 'rate_limit'
-      });
-    }
+    // Временно отключаем защиту от спама для тестов
+    // if (!canSendNotification(fcmToken)) {
+    //   console.log('⏱️ Слишком часто, пропускаем');
+    //   return res.status(200).json({ 
+    //     success: true,
+    //     message: 'Notification skipped (rate limit)',
+    //     skipped: true,
+    //     reason: 'rate_limit'
+    //   });
+    // }
 
-    // Определяем приоритет
     const finalPriority = priority || determinePriority(changes);
     const channelId = `pixel_weather_${finalPriority}`;
     
-    // 🔴 ФОРМИРУЕМ ЗАГОЛОВОК И ТЕКСТ ПРАВИЛЬНО
     let notificationTitle, notificationBody;
     
     if (finalPriority === 'high') {
@@ -111,46 +103,39 @@ module.exports = async function handler(req, res) {
 
     console.log(`📤 Погодное уведомление: ${finalPriority} приоритет`);
     console.log(`📝 Изменения:`, changes);
-    console.log(`📍 Локация:`, location);
-    console.log(`📱 Источник: ${source}`);
 
     const messaging = getMessaging();
 
-    // 🔴 КРИТИЧЕСКИ ВАЖНО: ПРАВИЛЬНЫЙ ФОРМАТ СООБЩЕНИЯ
+    // 🔴 ИСПРАВЛЕННЫЙ ФОРМАТ - КЛЮЧЕВЫЕ ИЗМЕНЕНИЯ:
     const message = {
       token: fcmToken,
       
-      // 🔴 ДЛЯ ПОКАЗА УВЕДОМЛЕНИЯ (работает всегда)
+      // ✅ notification для показа уведомления
       notification: {
         title: notificationTitle,
         body: notificationBody
       },
       
-      // 🔴 ДЛЯ ПЕРЕДАЧИ ДАННЫХ В ПРИЛОЖЕНИЕ (работает в фоне)
+      // ✅ data для передачи в приложение
       data: {
-        // Метаданные
         type: 'weather_change',
         priority: String(finalPriority),
         timestamp: new Date().toISOString(),
         source: String(source),
-        
-        // Данные для клиента
-        changes: JSON.stringify(changes), // JSON строка
-        location: JSON.stringify(location), // JSON строка
-        
-        // Для вашего кода на клиенте (опционально)
-        android_channel_id: String(channelId),
-        
-        // 🔴 ВАЖНО: не дублируем title и body здесь
-        // они уже в notification
+        changes: JSON.stringify(changes),
+        location: JSON.stringify(location),
+        // Для отладки - флаг теста фоновых уведомлений
+        test_mode: 'background_test',
+        // Ключ для проверки в AsyncStorage
+        debug_key: 'bg_test_' + Date.now()
       },
       
-      // 🔴 НАСТРОЙКИ ДЛЯ ANDROID
+      // ✅ КРИТИЧЕСКИЕ НАСТРОЙКИ ДЛЯ ФОНА
       android: {
-        priority: finalPriority === 'high' ? 'high' : 'normal',
-        ttl: 3600000, // 1 час
+        priority: 'high', // 🔴 ВСЕГДА high для фоновых уведомлений
+        ttl: 3600000,
         notification: {
-          channel_id: channelId, // 🔴 Ключевое для Android 8+
+          channel_id: channelId,
           icon: 'notification_icon',
           color: '#4ecdc4',
           sound: finalPriority !== 'low' ? 'default' : null,
@@ -158,10 +143,10 @@ module.exports = async function handler(req, res) {
         }
       },
       
-      // 🔴 НАСТРОЙКИ ДЛЯ iOS
+      // ✅ КРИТИЧЕСКИЕ НАСТРОЙКИ ДЛЯ iOS
       apns: {
         headers: {
-          "apns-priority": finalPriority === 'high' ? "10" : "5",
+          "apns-priority": "10", // 🔴 ВСЕГДА 10 для фоновых уведомлений
           "apns-push-type": "alert"
         },
         payload: {
@@ -172,31 +157,27 @@ module.exports = async function handler(req, res) {
             },
             sound: finalPriority !== 'low' ? "default" : undefined,
             badge: 1,
-            'content-available': 1, // 🔴 КРИТИЧЕСКИ для фоновых сообщений
-            'mutable-content': 1
-          }
-        }
-      },
-      
-      // 🔴 WEB (если нужно)
-      webpush: {
-        headers: {
-          Urgency: finalPriority === 'high' ? 'high' : 'normal'
+            'content-available': 1 // 🔴 ОБЯЗАТЕЛЬНО
+          },
+          // 🔴 ДАННЫЕ ДЛЯ iOS (в отдельном объекте, а не в aps)
+          type: 'weather_change',
+          priority: String(finalPriority),
+          test_mode: 'background_test'
         }
       }
     };
 
-    console.log('📤 Отправка погодного уведомления...');
-    console.log('📦 Формат сообщения:', {
-      hasNotification: !!message.notification,
-      hasData: !!message.data,
+    console.log('📤 Отправка уведомления...');
+    console.log('📦 Критические настройки:', {
       androidPriority: message.android.priority,
-      iosContentAvailable: message.apns.payload.aps['content-available']
+      iosApnsPriority: message.apns.headers["apns-priority"],
+      iosContentAvailable: message.apns.payload.aps['content-available'],
+      hasNotification: !!message.notification,
+      hasData: !!message.data
     });
 
     const response = await messaging.send(message);
     
-    // Обновляем timestamp для защиты от спама
     updateNotificationTimestamp(fcmToken);
     
     console.log('✅ Уведомление отправлено:', response);
@@ -209,23 +190,19 @@ module.exports = async function handler(req, res) {
       channelId: channelId,
       changesCount: changes.length,
       sentAt: new Date().toISOString(),
-      format: 'notification+data' // Указываем что отправили оба формата
+      format: 'notification+data',
+      androidPriority: message.android.priority,
+      iosApnsPriority: message.apns.headers["apns-priority"]
     });
 
   } catch (error) {
-    console.error('❌ Ошибка отправки уведомления:', error);
-    console.error('Полная ошибка:', {
-      code: error.code,
-      message: error.message,
-      details: error.details,
-      stack: error.stack
-    });
+    console.error('❌ Ошибка отправки:', error);
+    console.error('Полная ошибка:', error);
     
     return res.status(500).json({ 
       error: 'Failed to send notification',
       details: error.message,
-      code: error.code,
-      tip: 'Проверьте формат сообщения (notification + data)'
+      code: error.code
     });
   }
 };
