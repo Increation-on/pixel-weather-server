@@ -1,11 +1,16 @@
 {
   "name": "pixel-weather-server",
   "version": "1.0.0",
-  "scripts": {
-    "start": "node api/register-device.js"
-  },
+  "description": "Push notification server for Pixel Weather",
+  "main": "api/send-notification.js",
   "dependencies": {
-    "@vercel/node": "^3.0.0",
-    "firebase-admin": "^11.11.0"
+    "expo-server-sdk": "^3.15.0"
+  },
+  "scripts": {
+    "start": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "engines": {
+    "node": ">=18.x"
   }
 }

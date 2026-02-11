@@ -1,8 +1,9 @@
-const { initializeFirebase } = require('../lib/firebase.js');
 const addCorsHeaders = require('./_cors.js');
 
+// 🔴 ВРЕМЕННОЕ ХРАНИЛИЩЕ В ПАМЯТИ (данные потеряются при перезапуске сервера)
+const deviceStorage = new Map();
+
 module.exports = async function handler(req, res) {
-  // Добавляем CORS headers
   if (addCorsHeaders(req, res)) return;
 
   if (req.method !== 'POST') {
@@ -10,37 +11,57 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { fcmToken, latitude, longitude, userId } = req.body;
+    const { expoPushToken, latitude, longitude, userId } = req.body;
 
-    if (!fcmToken || !latitude || !longitude) {
+    if (!expoPushToken || !latitude || !longitude) {
       return res.status(400).json({ 
-        error: 'Missing required fields: fcmToken, latitude, longitude' 
+        error: 'Missing required fields: expoPushToken, latitude, longitude' 
       });
     }
 
-    // Инициализируем Firebase
-    initializeFirebase();
+    // 🔴 СОЗДАЕМ УНИКАЛЬНЫЙ ID ДЛЯ УСТРОЙСТВА
+    const deviceId = userId || `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // 🔴 СОХРАНЯЕМ В ПАМЯТИ
+    deviceStorage.set(deviceId, {
+      expoPushToken,
+      latitude: parseFloat(latitude),
+      longitude: parseFloat(longitude),
+      registeredAt: new Date().toISOString(),
+      lastUpdated: new Date().toISOString()
+    });
 
-    // TODO: Сохранить в базу данных (Vercel KV)
-    console.log('Device registered:', { 
-      fcmToken: fcmToken.substring(0, 20) + '...',
-      latitude, 
-      longitude,
-      userId: userId || 'anonymous',
-      timestamp: new Date().toISOString()
+    console.log('📱 Устройство зарегистрировано:', { 
+      deviceId,
+      tokenPreview: expoPushToken.substring(0, 30) + '...',
+      coordinates: `${latitude}, ${longitude}`,
+      totalDevices: deviceStorage.size
+    });
+
+    // 🔴 ДЛЯ ОТЛАДКИ: выводим список всех устройств
+    console.log('📋 Список всех зарегистрированных устройств:');
+    deviceStorage.forEach((device, id) => {
+      console.log(`  - ${id}: ${device.expoPushToken.substring(0, 25)}... (${device.latitude}, ${device.longitude})`);
     });
 
     return res.status(200).json({ 
       success: true,
-      message: 'Device registered successfully',
-      registeredAt: new Date().toISOString()
+      message: 'Expo Push Token зарегистрирован',
+      deviceId: deviceId,
+      registeredAt: new Date().toISOString(),
+      storageType: 'in-memory (temporary)',
+      totalDevices: deviceStorage.size,
+      warning: 'Данные хранятся в памяти сервера и будут потеряны при его перезапуске'
     });
 
   } catch (error) {
-    console.error('Registration error:', error);
+    console.error('❌ Ошибка регистрации:', error);
     return res.status(500).json({ 
       error: 'Internal server error',
       details: error.message 
     });
   }
 };
+
+// 🔴 ЭКСПОРТИРУЕМ ХРАНИЛИЩЕ ДЛЯ ИСПОЛЬЗОВАНИЯ В ДРУГИХ ФАЙЛАХ
+module.exports.deviceStorage = deviceStorage;
