@@ -9,12 +9,6 @@
       "memory": 1024
     }
   },
-  "crons": [
-    {
-      "path": "/api/cron-weather-check",
-      "schedule": "*/30 * * * *"
-    }
-  ],
   "env": {
     "NODE_ENV": "production"
   }
