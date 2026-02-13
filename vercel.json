@@ -3,10 +3,6 @@
   "functions": {
     "api/send-notification.js": {
       "maxDuration": 10
-    },
-    "api/cron-weather-check.js": {
-      "maxDuration": 30,
-      "memory": 1024
     }
   },
   "env": {
