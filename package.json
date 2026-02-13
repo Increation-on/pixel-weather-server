@@ -4,6 +4,7 @@
   "description": "Push notification server for Pixel Weather",
   "main": "api/send-notification.js",
   "dependencies": {
+    "@vercel/kv": "^3.0.0",
     "expo-server-sdk": "^3.15.0"
   },
   "scripts": {

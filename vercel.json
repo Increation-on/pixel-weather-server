@@ -1,11 +1,20 @@
-
 {
   "version": 2,
   "functions": {
     "api/send-notification.js": {
       "maxDuration": 10
+    },
+    "api/cron-weather-check.js": {
+      "maxDuration": 30,
+      "memory": 1024
     }
   },
+  "crons": [
+    {
+      "path": "/api/cron-weather-check",
+      "schedule": "*/30 * * * *"
+    }
+  ],
   "env": {
     "NODE_ENV": "production"
   }
