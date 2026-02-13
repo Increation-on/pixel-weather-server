@@ -1,5 +1,25 @@
 // pixel-weather-server/utils/weatherDetector.js
 
+// Экстренные пороги (по критериям МЧС)
+const EMERGENCY_THRESHOLDS = {
+  WIND: {
+    STORM: 25,      // м/с - штормовое предупреждение
+    HURRICANE: 33,  // м/с - ураган
+    TORNADO: 50     // м/с - смерч
+  },
+  RAIN: {
+    HEAVY_PER_HOUR: 30,     // мм за час - сильный ливень
+    VERY_HEAVY_12H: 50      // мм за 12 часов - очень сильный дождь
+  },
+  SNOW: {
+    HEAVY_12H: 20           // мм за 12 часов - сильный снегопад
+  },
+  VISIBILITY: {
+    DENSE_FOG: 100,         // метров - сильный туман
+    EXTREME_FOG: 50         // метров - очень сильный туман
+  }
+};
+
 /**
  * Определяет КАТЕГОРИЮ погоды по WMO коду
  */
@@ -16,19 +36,99 @@ export function getWeatherCategory(weatherCode) {
 }
 
 /**
+ * Проверяет на экстренные погодные явления
+ * Возвращает массив экстренных уведомлений
+ */
+export function checkEmergencyWeather(weatherData) {
+  const emergencies = [];
+  
+  if (!weatherData) return emergencies;
+  
+  // 1️⃣ ЭКСТРЕННЫЙ ВЕТЕР
+  if (weatherData.windSpeed >= EMERGENCY_THRESHOLDS.WIND.HURRICANE) {
+    emergencies.push({
+      level: 'КРАСНЫЙ',
+      type: 'wind',
+      title: '⚡ УРАГАН!',
+      body: `Ветер ${weatherData.windSpeed} м/с. Экстренное предупреждение! Избегайте улиц, держитесь подальше от деревьев и линий электропередач.`,
+      priority: 'high'
+    });
+  } else if (weatherData.windSpeed >= EMERGENCY_THRESHOLDS.WIND.STORM) {
+    emergencies.push({
+      level: 'ОРАНЖЕВЫЙ',
+      type: 'wind',
+      title: '💨 ШТОРМОВОЕ ПРЕДУПРЕЖДЕНИЕ',
+      body: `Ветер до ${weatherData.windSpeed} м/с. Будьте осторожны на улице, возможны повреждения.`,
+      priority: 'high'
+    });
+  }
+  
+  // 2️⃣ ЭКСТРЕННЫЕ ОСАДКИ (ливень)
+  if (weatherData.precipitation >= EMERGENCY_THRESHOLDS.RAIN.HEAVY_PER_HOUR) {
+    emergencies.push({
+      level: 'ОРАНЖЕВЫЙ',
+      type: 'rain',
+      title: '🌊 СИЛЬНЫЙ ЛИВЕНЬ',
+      body: `${weatherData.precipitation} мм осадков за час. Возможны подтопления, будьте осторожны.`,
+      priority: 'high'
+    });
+  }
+  
+  // 3️⃣ СИЛЬНЫЙ СНЕГОПАД
+  if (weatherData.precipitation >= EMERGENCY_THRESHOLDS.SNOW.HEAVY_12H && 
+      getWeatherCategory(weatherData.weatherCode) === 'снегопад') {
+    emergencies.push({
+      level: 'ОРАНЖЕВЫЙ',
+      type: 'snow',
+      title: '❄️ СИЛЬНЫЙ СНЕГОПАД',
+      body: `Обильные осадки. На дорогах гололедица, по возможности оставайтесь дома.`,
+      priority: 'medium'
+    });
+  }
+  
+  // 4️⃣ ГРОЗА
+  if (getWeatherCategory(weatherData.weatherCode) === 'гроза') {
+    emergencies.push({
+      level: 'ЖЁЛТЫЙ',
+      type: 'thunderstorm',
+      title: '⚡ ГРОЗА',
+      body: 'На улице гроза. Оставайтесь в помещении, не пользуйтесь электроприборами.',
+      priority: 'medium'
+    });
+  }
+  
+  // 5️⃣ СИЛЬНЫЙ ТУМАН (видимость определяем косвенно по коду)
+  if (weatherData.weatherCode >= 45 && weatherData.weatherCode <= 48) {
+    emergencies.push({
+      level: 'ЖЁЛТЫЙ',
+      type: 'fog',
+      title: '🌫️ СИЛЬНЫЙ ТУМАН',
+      body: 'Плохая видимость на дорогах. Будьте внимательны за рулём.',
+      priority: 'medium'
+    });
+  }
+  
+  return emergencies;
+}
+
+/**
  * Детектирует значимые изменения погоды (±5°C)
  */
 export function detectWeatherChanges(oldSnapshot, newData) {
   const changes = [];
   
-  if (!oldSnapshot) return changes;
+  if (!oldSnapshot || !newData) return changes;
   
   // 1. Температура ±5°C
   if (oldSnapshot.temperature !== undefined && newData.temperature !== undefined) {
     const tempDiff = Math.abs(newData.temperature - oldSnapshot.temperature);
     if (tempDiff >= 5) {
       const direction = newData.temperature > oldSnapshot.temperature ? '↑' : '↓';
-      changes.push(`Температура ${direction} на ${tempDiff.toFixed(1)}°C`);
+      changes.push({
+        type: 'temperature',
+        text: `Температура ${direction} на ${tempDiff.toFixed(1)}°C`,
+        priority: 'normal'
+      });
     }
   }
 
@@ -37,12 +137,40 @@ export function detectWeatherChanges(oldSnapshot, newData) {
   const newCategory = getWeatherCategory(newData.weatherCode);
   
   if (oldCategory !== newCategory) {
-    if (newCategory === 'гроза') changes.push('⚡ НАЧАЛАСЬ ГРОЗА!');
-    else if (newCategory === 'ливень') changes.push('💦 СИЛЬНЫЙ ЛИВЕНЬ');
-    else if (newCategory === 'снегопад') changes.push('❄️ СНЕГОПАД');
-    else if (oldCategory === 'ясно' && newCategory === 'дождь') changes.push('🌧️ Пошел дождь');
-    else if (oldCategory === 'ясно' && newCategory === 'снег') changes.push('❄️ Пошел снег');
-    else changes.push(`${oldCategory} → ${newCategory}`);
+    let text = '';
+    let priority = 'normal';
+    
+    if (newCategory === 'гроза') {
+      text = '⚡ НАЧАЛАСЬ ГРОЗА!';
+      priority = 'high';
+    } else if (newCategory === 'ливень') {
+      text = '💦 СИЛЬНЫЙ ЛИВЕНЬ';
+      priority = 'high';
+    } else if (newCategory === 'снегопад') {
+      text = '❄️ СНЕГОПАД';
+      priority = 'high';
+    } else if (oldCategory === 'ясно' && newCategory === 'дождь') {
+      text = '🌧️ Пошел дождь';
+    } else if (oldCategory === 'ясно' && newCategory === 'снег') {
+      text = '❄️ Пошел снег';
+    } else {
+      text = `${oldCategory} → ${newCategory}`;
+    }
+    
+    changes.push({ type: 'category', text, priority });
+  }
+
+  // 3. Изменение ветра (порог 5 м/с)
+  if (oldSnapshot.windSpeed !== undefined && newData.windSpeed !== undefined) {
+    const windDiff = Math.abs(newData.windSpeed - oldSnapshot.windSpeed);
+    if (windDiff >= 5) {
+      const direction = newData.windSpeed > oldSnapshot.windSpeed ? 'усилился' : 'ослаб';
+      changes.push({
+        type: 'wind',
+        text: `💨 Ветер ${direction} (${oldSnapshot.windSpeed}→${newData.windSpeed} м/с)`,
+        priority: 'normal'
+      });
+    }
   }
 
   return changes;
@@ -62,7 +190,7 @@ export async function fetchWeatherFromOpenWeather(lat, lon, apiKey) {
   return {
     temperature: data.main.temp,
     weatherCode: convertOpenWeatherCode(data.weather[0].id),
-    precipitation: data.rain?.['1h'] || 0,
+    precipitation: data.rain?.['1h'] || data.snow?.['1h'] || 0,
     windSpeed: data.wind.speed
   };
 }

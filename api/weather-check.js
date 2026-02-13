@@ -1,6 +1,11 @@
+// pixel-weather-server/api/weather-check.js
 import { kv } from '@vercel/kv';
 import { fetchWeatherWithFallback } from '../services/weatherService.js';
-import { detectWeatherChanges } from '../utils/weatherDetector.js';
+import { 
+  detectWeatherChanges, 
+  checkEmergencyWeather,
+  getWeatherCategory 
+} from '../utils/weatherDetector.js';
 import { Expo } from 'expo-server-sdk';
 
 const expo = new Expo();
@@ -30,40 +35,120 @@ export default async function handler(req, res) {
       // 3. Получаем старый снапшот
       const snapshot = await kv.hgetall(`snapshot:${lat}:${lon}`);
       
-      // 4. Детектим изменения
+      // 4. ПОЛУЧАЕМ ВСЕХ ПОЛЬЗОВАТЕЛЕЙ В ЭТОЙ ЛОКАЦИИ
+      const tokens = await kv.smembers(key);
+      
+      if (tokens.length === 0) continue;
+      
+      // 5. 🔥 ПРОВЕРЯЕМ НА ЭКСТРЕННЫЕ ЯВЛЕНИЯ (В ПЕРВУЮ ОЧЕРЕДЬ!)
+      const emergencyAlerts = checkEmergencyWeather(weather);
+      
+      if (emergencyAlerts.length > 0) {
+        console.log(`🚨 ЭКСТРЕННЫЕ УВЕДОМЛЕНИЯ для ${lat},${lon}:`, emergencyAlerts);
+        
+        // Отправляем каждое экстренное уведомление
+        for (const alert of emergencyAlerts) {
+          const emergencyMessages = tokens.map(token => ({
+            to: token,
+            sound: 'default',
+            title: alert.title,
+            body: alert.body,
+            data: { 
+              type: 'emergency',
+              level: alert.level,
+              emergencyType: alert.type,
+              weather: weather 
+            },
+            // 🔥 Высокий приоритет для экстренных
+            priority: alert.priority === 'high' ? 'high' : 'normal',
+            
+            // 📱 Android: специальный канал
+            android: {
+              channelId: alert.priority === 'high' ? 'pixel_weather_emergency' : 'pixel_weather_high',
+              priority: alert.priority === 'high' ? 'high' : 'normal',
+              sound: 'default',
+              vibrationPattern: alert.priority === 'high' ? [500, 500, 1000] : undefined
+            },
+            
+            // 🍎 iOS: пробивает без звука
+            apns: {
+              payload: {
+                aps: {
+                  sound: 'default',
+                  'content-available': 1,
+                  'interruption-level': alert.priority === 'high' ? 'time-sensitive' : 'active'
+                }
+              }
+            }
+          }));
+          
+          const chunks = expo.chunkPushNotifications(emergencyMessages);
+          for (const chunk of chunks) {
+            const tickets = await expo.sendPushNotificationsAsync(chunk);
+            console.log('✅ Экстренное отправлено:', tickets);
+          }
+        }
+        
+        // 🔥 Сохраняем экстренный снапшот отдельно (чтобы не дублировать)
+        await kv.hset(`snapshot:${lat}:${lon}`, { 
+          ...weather, 
+          timestamp: Date.now(),
+          lastEmergency: Date.now()
+        });
+        
+        results.push({ 
+          location: `${lat},${lon}`, 
+          emergencies: emergencyAlerts.map(e => ({ level: e.level, type: e.type })),
+          users: tokens.length 
+        });
+        
+        // Пропускаем обычные уведомления, если были экстренные
+        continue;
+      }
+      
+      // 6. ЕСЛИ НЕТ ЭКСТРЕННЫХ - ПРОВЕРЯЕМ ОБЫЧНЫЕ ИЗМЕНЕНИЯ
       const changes = detectWeatherChanges(snapshot, weather);
       
       if (changes.length > 0) {
         console.log(`🎯 Изменения для ${lat},${lon}:`, changes);
         
-        // 5. Сохраняем новый снапшот
+        // Сохраняем новый снапшот
         await kv.hset(`snapshot:${lat}:${lon}`, { 
           ...weather, 
           timestamp: Date.now() 
         });
         
-        // 6. Получаем всех пользователей в этой локации
-        const tokens = await kv.smembers(key);
-        console.log(`📱 Пользователей в локации: ${tokens.length}`);
+        // Формируем текст уведомления (первые 2 изменения)
+        const changeTexts = changes.map(c => c.text);
+        const notificationBody = changeTexts.slice(0, 2).join(' • ');
         
-        // 7. Отправляем уведомления
+        // Отправляем уведомления
         const messages = tokens.map(token => ({
           to: token,
           sound: 'default',
           title: '🌤️ Pixel Weather',
-          body: changes.slice(0, 2).join(' • '),
-          data: { changes, lat, lon }
+          body: notificationBody,
+          data: { 
+            type: 'weather_change',
+            changes: changeTexts,
+            lat, lon 
+          },
+          // Обычный приоритет
+          priority: 'normal',
+          android: {
+            channelId: 'pixel_weather_default'
+          }
         }));
         
         const chunks = expo.chunkPushNotifications(messages);
         for (const chunk of chunks) {
           const tickets = await expo.sendPushNotificationsAsync(chunk);
-          console.log('✅ Отправлено:', tickets);
+          console.log('✅ Обычные уведомления отправлены:', tickets);
         }
         
         results.push({ 
           location: `${lat},${lon}`, 
-          changes, 
+          changes: changeTexts, 
           users: tokens.length 
         });
       } else {
