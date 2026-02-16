@@ -1,29 +1,25 @@
-// pixel-weather-server/services/weatherService.js
-
-const OPENWEATHER_API_KEY = process.env.OPENWEATHER_API_KEY;
-const WEATHERAPI_KEY = process.env.WEATHERAPI_KEY; // Тоже добавим!
+// Убираем OpenWeatherMap полностью
+const WEATHERAPI_KEY = process.env.WEATHERAPI_KEY;
 
 /**
  * Получает погоду с ФОЛЛБЭКОМ как на клиенте
- * 1. OpenWeatherMap (основной)
+ * 1. Open-Meteo (основной, бесплатный)
  * 2. WeatherAPI.com (фоллбэк)
  * 3. Заглушка (последний шанс)
  */
 export async function fetchWeatherWithFallback(lat, lon) {
   console.log(`🌤️ Запрос погоды для: ${lat}, ${lon}`);
   
-  // 1. Пробуем OpenWeatherMap
+  // 1. Пробуем Open-Meteo (бесплатный, без ключа)
   try {
-    if (OPENWEATHER_API_KEY) {
-      const data = await fetchFromOpenWeather(lat, lon);
-      console.log('✅ OpenWeatherMap успешно');
-      return data;
-    }
+    const data = await fetchFromOpenMeteo(lat, lon);
+    console.log('✅ Open-Meteo успешно');
+    return data;
   } catch (error) {
-    console.warn('⚠️ OpenWeatherMap ошибка:', error.message);
+    console.warn('⚠️ Open-Meteo ошибка:', error.message);
   }
   
-  // 2. Пробуем WeatherAPI.com
+  // 2. Пробуем WeatherAPI.com (фоллбэк)
   try {
     if (WEATHERAPI_KEY) {
       const data = await fetchFromWeatherAPI(lat, lon);
@@ -46,22 +42,22 @@ export async function fetchWeatherWithFallback(lat, lon) {
 }
 
 /**
- * OpenWeatherMap
+ * Open-Meteo (как в клиенте)
  */
-async function fetchFromOpenWeather(lat, lon) {
-  const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&appid=${OPENWEATHER_API_KEY}`;
+async function fetchFromOpenMeteo(lat, lon) {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
   
   const response = await fetch(url);
-  if (!response.ok) throw new Error(`OpenWeather: ${response.status}`);
+  if (!response.ok) throw new Error(`Open-Meteo: ${response.status}`);
   
   const data = await response.json();
   
   return {
-    temperature: data.main.temp,
-    weatherCode: convertOpenWeatherCode(data.weather[0].id),
-    precipitation: data.rain?.['1h'] || data.snow?.['1h'] || 0,
-    windSpeed: data.wind.speed,
-    source: 'openweather'
+    temperature: data.current_weather.temperature,
+    weatherCode: data.current_weather.weathercode,
+    precipitation: 0, // Open-Meteo требует отдельного запроса
+    windSpeed: data.current_weather.windspeed,
+    source: 'open-meteo'
   };
 }
 
@@ -85,25 +81,7 @@ async function fetchFromWeatherAPI(lat, lon) {
   };
 }
 
-/**
- * Конвертер OpenWeatherMap code → WMO
- */
-function convertOpenWeatherCode(code) {
-  if (code >= 200 && code < 300) return 95; // Гроза
-  if (code >= 300 && code < 400) return 51; // Морось
-  if (code >= 500 && code < 600) return 61; // Дождь
-  if (code >= 600 && code < 700) return 71; // Снег
-  if (code >= 700 && code < 800) return 45; // Туман
-  if (code === 800) return 0; // Ясно
-  if (code === 801) return 1;
-  if (code === 802) return 2;
-  if (code === 803 || code === 804) return 3;
-  return 3;
-}
-
-/**
- * Конвертер WeatherAPI code → WMO
- */
+// Конвертер кодов WeatherAPI → WMO (как у тебя в клиенте)
 function convertWeatherAPICode(code) {
   const map = {
     1000: 0, // Ясно
@@ -159,7 +137,5 @@ function convertWeatherAPICode(code) {
 }
 
 export default {
-  fetchWeatherWithFallback,
-  fetchFromOpenWeather,
-  fetchFromWeatherAPI
+  fetchWeatherWithFallback
 };
