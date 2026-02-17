@@ -1,4 +1,3 @@
-// pixel-weather-server/api/weather-check.js
 import { kv } from '@vercel/kv';
 import { fetchWeatherWithFallback } from '../services/weatherService.js';
 import { 
@@ -11,7 +10,6 @@ import { Expo } from 'expo-server-sdk';
 const expo = new Expo();
 
 export default async function handler(req, res) {
-  // Только POST
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -19,81 +17,100 @@ export default async function handler(req, res) {
   try {
     console.log('⏰ CRON: Начинаю проверку погоды...');
     
-    // 1. Получаем все уникальные локации из Redis
+    // 1. Получаем ВСЕ уникальные локации
     const locationKeys = await kv.keys('location:*');
-    console.log(`📍 Найдено локаций: ${locationKeys.length}`);
+    console.log(`📍 Найдено локаций в БД: ${locationKeys.length}`);
 
     const results = [];
 
     for (const key of locationKeys) {
       const [_, lat, lon] = key.split(':');
-      console.log(`🔍 Проверка: ${lat}, ${lon}`);
-
-      // 2. Получаем текущую погоду
-      const weather = await fetchWeatherWithFallback(parseFloat(lat), parseFloat(lon));
       
-      // 3. Получаем старый снапшот
-      const snapshot = await kv.hgetall(`snapshot:${lat}:${lon}`);
-      
-      // 🔥 ДОБАВЛЯЕМ ДЕТАЛЬНЫЕ ЛОГИ ЗДЕСЬ 🔥
-      console.log('===== ДЕТЕКТОР =====');
-      console.log('📦 Старый снапшот:', {
-        temperature: snapshot?.temperature,
-        windSpeed: snapshot?.windSpeed,
-        weatherCode: snapshot?.weatherCode,
-        precipitation: snapshot?.precipitation,
-        source: snapshot?.source,
-        timestamp: snapshot?.timestamp ? new Date(snapshot.timestamp).toISOString() : null
-      });
-
-      console.log('🌤️ Текущая погода:', {
-        temperature: weather?.temperature,
-        windSpeed: weather?.windSpeed,
-        weatherCode: weather?.weatherCode,
-        precipitation: weather?.precipitation,
-        source: weather?.source,
-        isFallback: weather?.isFallback
-      });
-
-      // Сравниваем температуру
-      if (snapshot?.temperature !== undefined && weather?.temperature !== undefined) {
-        const tempDiff = Math.abs(weather.temperature - snapshot.temperature);
-        console.log(`🌡️ Разница температуры: ${tempDiff.toFixed(2)}°C (порог 5°C)`);
-      }
-
-      // Сравниваем категории (используем функцию из weatherDetector)
-      const oldCat = snapshot?.weatherCode ? getWeatherCategory(snapshot.weatherCode) : 'нет данных';
-      const newCat = weather?.weatherCode ? getWeatherCategory(weather.weatherCode) : 'нет данных';
-      console.log(`☁️ Категория: "${oldCat}" → "${newCat}"`);
-      console.log(`📊 Коды: ${snapshot?.weatherCode} → ${weather?.weatherCode}`);
-
-      // Сравниваем ветер
-      if (snapshot?.windSpeed !== undefined && weather?.windSpeed !== undefined) {
-        const windDiff = Math.abs(weather.windSpeed - snapshot.windSpeed);
-        console.log(`💨 Разница ветра: ${windDiff.toFixed(2)} м/с (порог 5 м/с)`);
-      }
-
-      // Сравниваем осадки
-      if (snapshot?.precipitation !== undefined && weather?.precipitation !== undefined) {
-        const precipDiff = weather.precipitation - snapshot.precipitation;
-        if (Math.abs(precipDiff) > 0.1) {
-          console.log(`💧 Осадки изменились: ${snapshot.precipitation} → ${weather.precipitation} мм`);
-        }
-      }
-      console.log('=====================');
-      
-      // 4. ПОЛУЧАЕМ ВСЕХ ПОЛЬЗОВАТЕЛЕЙ В ЭТОЙ ЛОКАЦИИ
+      // 2. Получаем ВСЕ токены для этой локации
       const tokens = await kv.smembers(key);
       
-      if (tokens.length === 0) continue;
+      if (tokens.length === 0) {
+        console.log(`⚠️ Локация ${lat},${lon} без токенов — удаляем`);
+        await kv.del(key);
+        continue;
+      }
+
+      // 3. Для КАЖДОГО токена проверяем, является ли эта локация текущей
+      let hasActiveUsers = false;
       
-      // 5. 🔥 ПРОВЕРЯЕМ НА ЭКСТРЕННЫЕ ЯВЛЕНИЯ (В ПЕРВУЮ ОЧЕРЕДЬ!)
+      for (const token of tokens) {
+        const userLocation = await kv.get(`user:${token}:current`);
+        
+        // Если у пользователя есть текущая локация И она совпадает с этой
+        if (userLocation && 
+            Math.abs(userLocation.lat - parseFloat(lat)) < 0.001 && 
+            Math.abs(userLocation.lon - parseFloat(lon)) < 0.001) {
+          hasActiveUsers = true;
+          console.log(`✅ Токен ${token.substring(0, 10)}... активен для этой локации`);
+        } else {
+          console.log(`🗑️ Токен ${token.substring(0, 10)}... устарел — удаляем`);
+          await kv.srem(key, token);
+        }
+      }
+      
+      // Если после фильтрации не осталось активных пользователей — пропускаем локацию
+      if (!hasActiveUsers) {
+        console.log(`⏸️ Локация ${lat},${lon} не имеет активных пользователей — пропускаем`);
+        
+        // Если локация опустела — удаляем её
+        const remainingTokens = await kv.smembers(key);
+        if (remainingTokens.length === 0) {
+          await kv.del(key);
+        }
+        continue;
+      }
+
+      console.log(`🔍 Проверка активной локации: ${lat}, ${lon}`);
+
+      // 4. Получаем текущую погоду
+      const weather = await fetchWeatherWithFallback(parseFloat(lat), parseFloat(lon));
+      
+      // 5. Получаем старый снапшот
+      const snapshot = await kv.hgetall(`snapshot:${lat}:${lon}`);
+      
+      // 6. 🔥 ЕСЛИ СНЭПШОТА НЕТ — СОЗДАЁМ И ПРОПУСКАЕМ
+      if (!snapshot || Object.keys(snapshot).length === 0) {
+        console.log(`📸 Первый запуск для ${lat},${lon} — сохраняем снапшот`);
+        await kv.hset(`snapshot:${lat}:${lon}`, { 
+          ...weather, 
+          timestamp: Date.now() 
+        });
+        
+        results.push({ 
+          location: `${lat},${lon}`, 
+          status: 'initialized',
+          users: tokens.length 
+        });
+        
+        continue;
+      }
+
+      // 7. ДЕТАЛЬНЫЕ ЛОГИ ДЛЯ ОТЛАДКИ
+      console.log('===== СРАВНЕНИЕ =====');
+      console.log('📦 Снапшот:', {
+        temp: snapshot.temperature,
+        wind: snapshot.windSpeed,
+        code: snapshot.weatherCode,
+        source: snapshot.source
+      });
+      console.log('🌤️ Текущее:', {
+        temp: weather.temperature,
+        wind: weather.windSpeed,
+        code: weather.weatherCode,
+        source: weather.source
+      });
+
+      // 8. ПРОВЕРЯЕМ ЭКСТРЕННЫЕ
       const emergencyAlerts = checkEmergencyWeather(weather);
       
       if (emergencyAlerts.length > 0) {
-        console.log(`🚨 ЭКСТРЕННЫЕ УВЕДОМЛЕНИЯ для ${lat},${lon}:`, emergencyAlerts);
+        console.log(`🚨 ЭКСТРЕННЫЕ для ${lat},${lon}:`, emergencyAlerts);
         
-        // Отправляем каждое экстренное уведомление
         for (const alert of emergencyAlerts) {
           const emergencyMessages = tokens.map(token => ({
             to: token,
@@ -104,28 +121,14 @@ export default async function handler(req, res) {
               type: 'emergency',
               level: alert.level,
               emergencyType: alert.type,
-              weather: weather 
+              weather 
             },
-            // 🔥 Высокий приоритет для экстренных
             priority: alert.priority === 'high' ? 'high' : 'normal',
-            
-            // 📱 Android: специальный канал
             android: {
               channelId: alert.priority === 'high' ? 'pixel_weather_emergency' : 'pixel_weather_high',
               priority: alert.priority === 'high' ? 'high' : 'normal',
               sound: 'default',
               vibrationPattern: alert.priority === 'high' ? [500, 500, 1000] : undefined
-            },
-            
-            // 🍎 iOS: пробивает без звука
-            apns: {
-              payload: {
-                aps: {
-                  sound: 'default',
-                  'content-available': 1,
-                  'interruption-level': alert.priority === 'high' ? 'time-sensitive' : 'active'
-                }
-              }
             }
           }));
           
@@ -136,7 +139,7 @@ export default async function handler(req, res) {
           }
         }
         
-        // 🔥 Сохраняем экстренный снапшот отдельно (чтобы не дублировать)
+        // Сохраняем снапшот после экстренного
         await kv.hset(`snapshot:${lat}:${lon}`, { 
           ...weather, 
           timestamp: Date.now(),
@@ -149,11 +152,10 @@ export default async function handler(req, res) {
           users: tokens.length 
         });
         
-        // Пропускаем обычные уведомления, если были экстренные
         continue;
       }
-      
-      // 6. ЕСЛИ НЕТ ЭКСТРЕННЫХ - ПРОВЕРЯЕМ ОБЫЧНЫЕ ИЗМЕНЕНИЯ
+
+      // 9. ПРОВЕРЯЕМ ОБЫЧНЫЕ ИЗМЕНЕНИЯ
       const changes = detectWeatherChanges(snapshot, weather);
       
       if (changes.length > 0) {
@@ -165,11 +167,10 @@ export default async function handler(req, res) {
           timestamp: Date.now() 
         });
         
-        // Формируем текст уведомления (первые 2 изменения)
+        // Отправляем уведомления
         const changeTexts = changes.map(c => c.text);
         const notificationBody = changeTexts.slice(0, 2).join(' • ');
         
-        // Отправляем уведомления
         const messages = tokens.map(token => ({
           to: token,
           sound: 'default',
@@ -180,17 +181,13 @@ export default async function handler(req, res) {
             changes: changeTexts,
             lat, lon 
           },
-          // Обычный приоритет
-          priority: 'normal',
-          android: {
-            channelId: 'pixel_weather_default'
-          }
+          priority: 'normal'
         }));
         
         const chunks = expo.chunkPushNotifications(messages);
         for (const chunk of chunks) {
           const tickets = await expo.sendPushNotificationsAsync(chunk);
-          console.log('✅ Обычные уведомления отправлены:', tickets);
+          console.log('✅ Уведомления отправлены:', tickets);
         }
         
         results.push({ 
