@@ -35,6 +35,53 @@ export default async function handler(req, res) {
       // 3. Получаем старый снапшот
       const snapshot = await kv.hgetall(`snapshot:${lat}:${lon}`);
       
+      // 🔥 ДОБАВЛЯЕМ ДЕТАЛЬНЫЕ ЛОГИ ЗДЕСЬ 🔥
+      console.log('===== ДЕТЕКТОР =====');
+      console.log('📦 Старый снапшот:', {
+        temperature: snapshot?.temperature,
+        windSpeed: snapshot?.windSpeed,
+        weatherCode: snapshot?.weatherCode,
+        precipitation: snapshot?.precipitation,
+        source: snapshot?.source,
+        timestamp: snapshot?.timestamp ? new Date(snapshot.timestamp).toISOString() : null
+      });
+
+      console.log('🌤️ Текущая погода:', {
+        temperature: weather?.temperature,
+        windSpeed: weather?.windSpeed,
+        weatherCode: weather?.weatherCode,
+        precipitation: weather?.precipitation,
+        source: weather?.source,
+        isFallback: weather?.isFallback
+      });
+
+      // Сравниваем температуру
+      if (snapshot?.temperature !== undefined && weather?.temperature !== undefined) {
+        const tempDiff = Math.abs(weather.temperature - snapshot.temperature);
+        console.log(`🌡️ Разница температуры: ${tempDiff.toFixed(2)}°C (порог 5°C)`);
+      }
+
+      // Сравниваем категории (используем функцию из weatherDetector)
+      const oldCat = snapshot?.weatherCode ? getWeatherCategory(snapshot.weatherCode) : 'нет данных';
+      const newCat = weather?.weatherCode ? getWeatherCategory(weather.weatherCode) : 'нет данных';
+      console.log(`☁️ Категория: "${oldCat}" → "${newCat}"`);
+      console.log(`📊 Коды: ${snapshot?.weatherCode} → ${weather?.weatherCode}`);
+
+      // Сравниваем ветер
+      if (snapshot?.windSpeed !== undefined && weather?.windSpeed !== undefined) {
+        const windDiff = Math.abs(weather.windSpeed - snapshot.windSpeed);
+        console.log(`💨 Разница ветра: ${windDiff.toFixed(2)} м/с (порог 5 м/с)`);
+      }
+
+      // Сравниваем осадки
+      if (snapshot?.precipitation !== undefined && weather?.precipitation !== undefined) {
+        const precipDiff = weather.precipitation - snapshot.precipitation;
+        if (Math.abs(precipDiff) > 0.1) {
+          console.log(`💧 Осадки изменились: ${snapshot.precipitation} → ${weather.precipitation} мм`);
+        }
+      }
+      console.log('=====================');
+      
       // 4. ПОЛУЧАЕМ ВСЕХ ПОЛЬЗОВАТЕЛЕЙ В ЭТОЙ ЛОКАЦИИ
       const tokens = await kv.smembers(key);
       
