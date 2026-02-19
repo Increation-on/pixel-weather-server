@@ -119,49 +119,50 @@ export function detectWeatherChanges(oldSnapshot, newData) {
 
   if (!oldSnapshot || !newData) return changes;
 
-  // 🔥 ДЕТАЛЬНЫЕ ЛОГИ
-  console.log('📦 [ДЕТЕКТОР] Старые данные:', {
-    temp: oldSnapshot.temperature,
-    wind: oldSnapshot.windSpeed,
-    code: oldSnapshot.weatherCode,
-    cat: getWeatherCategory(oldSnapshot.weatherCode)
-  });
-
-  console.log('📦 [ДЕТЕКТОР] Новые данные:', {
-    temp: newData.temperature,
-    wind: newData.windSpeed,
-    code: newData.weatherCode,
-    cat: getWeatherCategory(newData.weatherCode)
-  });
-
-  // --- температура ---
+  // 1. Температура
   if (oldSnapshot.temperature !== undefined && newData.temperature !== undefined) {
-    const tempDiff = Math.abs(newData.temperature - oldSnapshot.temperature);
-    console.log(`🌡️ [ДЕТЕКТОР] Разница температуры: ${tempDiff.toFixed(1)}°C (порог 5°C)`);
-    if (tempDiff >= 5) {
-      changes.push({ type: 'temperature', text: `Температура изменилась на ${tempDiff.toFixed(1)}°C` });
+    const diff = newData.temperature - oldSnapshot.temperature;
+    const absDiff = Math.abs(diff);
+
+    if (absDiff >= 5) {
+      const direction = diff > 0 ? 'потеплело' : 'похолодало';
+      const arrow = diff > 0 ? '↑' : '↓';
+      changes.push({
+        type: 'temperature',
+        text: `${arrow} ${absDiff.toFixed(1)}°C (${direction})`
+      });
     }
   }
 
-  // --- категория погоды ---
+  // 2. Ветер
+  if (oldSnapshot.windSpeed !== undefined && newData.windSpeed !== undefined) {
+    const diff = newData.windSpeed - oldSnapshot.windSpeed;
+    const absDiff = Math.abs(diff);
+
+    if (absDiff >= 5) {
+      const direction = diff > 0 ? 'усилился' : 'ослаб';
+      const arrow = diff > 0 ? '↑' : '↓';
+      changes.push({
+        type: 'wind',
+        text: `${arrow} ${absDiff.toFixed(1)} м/с (ветер ${direction})`
+      });
+    }
+  }
+
+  // 3. Категория погоды
   const oldCat = getWeatherCategory(oldSnapshot.weatherCode);
   const newCat = getWeatherCategory(newData.weatherCode);
-  console.log(`☁️ [ДЕТЕКТОР] Категория: ${oldCat} → ${newCat}`);
+
   if (oldCat !== newCat) {
-    changes.push({ type: 'category', text: `${oldCat} → ${newCat}` });
-  }
+    let text = '';
+    if (newCat === 'гроза') text = '⚡ Началась гроза';
+    else if (newCat === 'ливень') text = '💦 Сильный ливень';
+    else if (newCat === 'снегопад') text = '❄️ Начался снегопад';
+    else if (oldCat === 'ясно' && newCat === 'дождь') text = '🌧️ Пошёл дождь';
+    else if (oldCat === 'ясно' && newCat === 'снег') text = '❄️ Пошёл снег';
+    else text = `${oldCat} → ${newCat}`;
 
-  // --- ветер ---
-  if (oldSnapshot.windSpeed !== undefined && newData.windSpeed !== undefined) {
-    const windDiff = Math.abs(newData.windSpeed - oldSnapshot.windSpeed);
-    console.log(`💨 [ДЕТЕКТОР] Разница ветра: ${windDiff.toFixed(1)} м/с (порог 5 м/с)`);
-    if (windDiff >= 5) {
-      changes.push({ type: 'wind', text: `Ветер изменился на ${windDiff.toFixed(1)} м/с` });
-    }
-  }
-
-  if (changes.length === 0) {
-    console.log('⏸️ [ДЕТЕКТОР] Изменений нет — все показатели ниже порогов');
+    changes.push({ type: 'category', text });
   }
 
   return changes;
